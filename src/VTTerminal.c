@@ -17,6 +17,8 @@
 
 #include "vtterminal.h"
 
+// add by wuke
+
 int main(void) {
 	int rc;
 	int fd_can0;
