@@ -28,6 +28,7 @@ void *ble_serial_read_data(void* fd);
 void *can0_read_data( void* fd);
 
 void ble_serial_write_data(int fd, char* buf);
+void can0_write_data(int fd, unsigned char cmd);
 
 void set_stopbit(struct termios *opt, const char *stopbit);
 void set_parity(struct termios *opt, char parity);

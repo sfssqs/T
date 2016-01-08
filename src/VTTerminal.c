@@ -17,12 +17,12 @@
 
 #include "vtterminal.h"
 
-// add by wuke
+
+int fd_can0;
+int fd_ble_serial;
 
 int main(void) {
 	int rc;
-	int fd_can0;
-	int fd_ble_serial;
 
 	pthread_t thread_can0;
 	pthread_t thread_ble_serial;
@@ -140,9 +140,9 @@ void *can0_read_data(void * _fd) {
 	}
 }
 
-void can0_write_data(int fd) {
-	int ret, i;
-	struct can_frame fr, frdup;
+void can0_write_data(int fd, unsigned char cmd) {
+	int ret, i, j;
+	struct can_frame active, frdup;
 	struct timeval tv;
 	fd_set rset;
 
@@ -151,16 +151,55 @@ void can0_write_data(int fd) {
 	FD_ZERO(&rset);
 	FD_SET(fd, &rset);
 
-	frdup.can_id = 0x1fffffff;
-	frdup.can_id &= CAN_EFF_MASK;
-	frdup.can_id |= CAN_EFF_FLAG;
-	frdup.can_dlc = 8;
+	printf("can0_write_data,  command : %X \n", cmd);
 
-	printf("send data = ");
-	int j = 0xDD;
-	for (i = 0; i < frdup.can_dlc; i++) {
-		frdup.data[i] = j--;
-		printf("%02x ", frdup.data[i]);
+	// active command
+	for (j = 0; j < 12; j++) {
+		active.can_id = 0x1E12FF90;
+		active.can_id &= CAN_EFF_MASK;
+		active.can_id |= CAN_EFF_FLAG;
+		active.can_dlc = 1;
+		active.data[0] = 0x00;
+		ret = write(fd, &active, sizeof(active));
+		if (ret < 0) {
+			myerr("write failed");
+			return;
+		}
+		usleep(20000);
+	}
+
+	printf("can0_write_data,  active command called : %X \n", cmd);
+
+	switch (cmd) {
+	// door unlock
+	case 0xC0:
+		frdup.can_id = 0x0EF81290;
+		frdup.can_id &= CAN_EFF_MASK;
+		frdup.can_id |= CAN_EFF_FLAG;
+		frdup.can_dlc = 2;
+		frdup.data[0] = 0x02;
+		frdup.data[1] = 0x20;
+		break;
+		// door lock
+	case 0xC1:
+		frdup.can_id = 0x0EF81290;
+		frdup.can_id &= CAN_EFF_MASK;
+		frdup.can_id |= CAN_EFF_FLAG;
+		frdup.can_dlc = 2;
+		frdup.data[0] = 0x01;
+		frdup.data[1] = 0x00;
+		break;
+		// trunk unlock
+	case 0xC2:
+		frdup.can_id = 0x0EF81290;
+		frdup.can_id &= CAN_EFF_MASK;
+		frdup.can_id |= CAN_EFF_FLAG;
+		frdup.can_dlc = 2;
+		frdup.data[0] = 0x80;
+		frdup.data[1] = 0x00;
+		break;
+	default:
+		printf("can0_write_data, default\n");
 	}
 
 	ret = write(fd, &frdup, sizeof(frdup));
@@ -264,12 +303,12 @@ int ble_serial_init() {
 	return fd;
 }
 
-void *ble_serial_read_data(void*_fd) {
-	char buf[8];
+void *ble_serial_read_data(void*_fd_serial) {
+	unsigned char buf[8];
 	int len;
 	int fd;
 
-	fd = *(int*) _fd;
+	fd = *(int*) _fd_serial;
 
 	while (1) {
 		memset(buf, 0, sizeof(buf));
@@ -282,9 +321,9 @@ void *ble_serial_read_data(void*_fd) {
 		printf("++++++++++++++++++++++++++++++++++++++\n");
 
 		printf("Read length : %d \n", len);
-		printf("Read data : %s \n", buf);
+		printf("Read data : %X \n", buf[0]);
 
-		ble_serial_write_data(fd, buf);
+		can0_write_data(fd_can0, buf[0]);
 	}
 }
 
