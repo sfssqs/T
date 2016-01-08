@@ -26,9 +26,13 @@ typedef void (*callback)(int fb, char*);
 
 void *ble_serial_read_data(void* fd);
 void *can0_read_data( void* fd);
+void *startUDPServer(void* fd);
 
 void ble_serial_write_data(int fd, char* buf);
 void can0_write_data(int fd, unsigned char cmd);
+void net_udp_register();
+void net_udp_read_data( int fd);
+void net_udp_write_data(int fd, char* cmd, int len);
 
 void set_stopbit(struct termios *opt, const char *stopbit);
 void set_parity(struct termios *opt, char parity);
@@ -43,5 +47,6 @@ int set_can_filter(int fd);
 
 void can0_release(int fd);
 void ble_serial_release(int fd);
+void net_udp_release(int fd);
 
 #endif /* VTTERMINAL_H_ */

@@ -17,15 +17,16 @@
 
 #include "vtterminal.h"
 
-
 int fd_can0;
 int fd_ble_serial;
+int fd_net_udp;
 
 int main(void) {
 	int rc;
 
 	pthread_t thread_can0;
 	pthread_t thread_ble_serial;
+	pthread_t thread_net_udp;
 
 	// open devices
 	fd_can0 = can0_init();
@@ -35,6 +36,8 @@ int main(void) {
 	fd_ble_serial = ble_serial_init();
 	if (fd_ble_serial < 0)
 		puts("ble_serial open failed\n");
+
+	net_udp_init();
 
 	// data read thread
 	rc = pthread_create(&thread_can0, NULL, can0_read_data, &fd_can0);
@@ -46,21 +49,105 @@ int main(void) {
 	if (rc)
 		puts("ble_serial thread create failed!");
 
+	rc = pthread_create(&thread_net_udp, NULL, startUDPServer, NULL);
+	if (rc)
+		puts("startUDPServer thread create failed!");
+
 	// thread join
 	pthread_join(thread_can0, NULL);
 	pthread_join(thread_ble_serial, NULL);
+	pthread_join(thread_net_udp, NULL);
 
 	puts("in main");
 
 	// release
 	can0_release(fd_can0);
 	ble_serial_release(fd_ble_serial);
+	net_udp_release(fd_net_udp);
 
 	puts("Device closed, ble_serial & can0");
 
 	return 0;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////
+
+#define NET_UDP_PORT 		5000
+#define NET_UDP_BUFFER_LENGTH  	1          // Buffer length
+
+struct sockaddr_in addr_remote;    					// Host address information
+char ipAddr[] = { "120.25.145.181" };					// Server IP
+
+int net_udp_init() {
+	int ret = 0;
+
+	/* Get the Socket file descriptor */
+	if ((fd_net_udp = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+		printf("ERROR: Failed to obtain Socket Despcritor.\n");
+		return -1;
+	} else {
+		printf("OK: Obtain Socket Despcritor sucessfully.\n");
+	}
+
+	/* Fill the socket address struct */
+	addr_remote.sin_family = AF_INET;          		// Protocol Family
+	addr_remote.sin_port = htons(NET_UDP_PORT);          		// Port number
+	inet_pton(AF_INET, ipAddr, &addr_remote.sin_addr); 	// Net Address
+	memset(addr_remote.sin_zero, 0, 8);              // Flush the rest of struct
+	printf("OK: Fill the socket address struct sucessfully.\n");
+
+	return ret;
+}
+
+void* startUDPServer(void * fd) {
+	printf("OK: startUDPServer\n");
+	net_udp_register();
+	printf("OK: UDP registered\n");
+	printf("OK: UDP command listening...\n");
+	net_udp_read_data(fd_net_udp);
+	pthread_exit(NULL);
+}
+
+// Register to server, and keep the heart beat so that command can be send back
+void net_udp_register() {
+	char cmd[] = { 0xD0, 0x01 };
+	int len = sizeof(cmd);
+	printf("OK: Sending UDP command : 0x%X 0x%X\n", cmd[0], cmd[1]);
+	net_udp_write_data(fd_net_udp, cmd, len);
+}
+
+void net_udp_write_data(int fd, char* cmd, int len) {
+	int num;                       				// Counter of received bytes
+
+	num = sendto(fd, cmd, len, 0, (struct sockaddr *) &addr_remote,
+			sizeof(struct sockaddr_in));
+	if (num < 0) {
+		printf("ERROR: Failed to send your data!\n");
+	} else {
+		printf("OK: Sent to %s total %d bytes !\n", ipAddr, num);
+		printf("OK: Command sent: 0x%X 0x%X\n", cmd[0], cmd[1]);
+	}
+}
+
+void net_udp_read_data(int fd) {
+	int sin_size;                      	// to store struct size
+	unsigned char revbuf[NET_UDP_BUFFER_LENGTH];
+
+	while (1) {
+		sin_size = sizeof(struct sockaddr);
+		if (recvfrom(fd_net_udp, revbuf, NET_UDP_BUFFER_LENGTH, 0,
+				(struct sockaddr *) &addr_remote, &sin_size) == -1) {
+			printf("ERROR!\n");
+		} else {
+			printf("OK: received command : 0x%X\n", revbuf[0]);
+			can0_write_data(fd_can0, revbuf[0]);
+		}
+	}
+}
+
+void net_udp_release(int fd) {
+	close(fd);
+}
 //////////////////////////////////////////////////////////////////////////////////////
 /// can0
 
@@ -377,7 +464,7 @@ int set_port_attr(int fd, int baudrate, int databit, const char *stopbit,
 	opt.c_oflag &= ~OPOST;
 	// Classical output
 	// opt.c_oflag |= OPOST;
-
+		// Counter of received bytes
 	opt.c_cc[VTIME] = vtime;
 	opt.c_cc[VMIN] = vmin;
 
